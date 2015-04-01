@@ -5,6 +5,7 @@ version = '1.0'
 apply plugin: "application"
 apply plugin: "maven-publish"
 defaultTasks "clean", "build"
+apply plugin: 'jacoco'
 
 repositories {
     mavenCentral()
@@ -26,10 +27,12 @@ repositories {
     }
 }
 
+test { finalizedBy jacocoTestReport }
+
 tasks.withType(Test) {
-            testLogging {
-                        events 'started', 'passed'
-            }
+    testLogging {
+        events 'started', 'passed'
+    }
 }
 
 gradle.taskGraph.whenReady {taskGraph ->
@@ -62,6 +65,9 @@ task sourceJar(type: Jar) {
     from sourceSets.main.allJava
 }
 
+task testReport(type: TestReport) {
+    destinationDir = file("$buildDir/reports/allTests")
+}
 
 publishing {
     publications {

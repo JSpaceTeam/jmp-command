@@ -1,8 +1,10 @@
 # jmp-command
 Reactive JMP Command Library
 
-Wiki Link
+##Wiki Link
 https://github.com/JSpaceTeam/jmp-command/wiki
+##Branching mode
+We are following nvie.com branching model. Here is the wiki page on how to follow this model in GitHub. Please read it before developing features or fixing bugs.
 
-Run unit test cases using the command
+##Run unit test cases using the command
 ./gradlew test

@@ -1,15 +1,6 @@
 package net.juniper.jmp.execution;
 
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-
+import com.google.common.base.Preconditions;
 import net.juniper.jmp.cmp.distribution.LoadSplitStrategy;
 import net.juniper.jmp.cmp.system.JMPScopedContext;
 import net.juniper.jmp.cmp.system.JxServiceLocator;
@@ -21,7 +12,15 @@ import rx.Observable.OnSubscribe;
 import rx.Subscriber;
 import rx.functions.Func0;
 
-import com.google.common.base.Preconditions;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Simple Async EJB Command wrapper class that can be used to make asynchronous EJB calls. This call automatically splits the EJB methods 
@@ -187,7 +186,7 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
    * Look UP the EJB in case node is reserved use the reserved node
    * @return
    */
-  private Object lookupEJB() {
+  protected Object lookupEJB() {
     if (true) {
       return JxServiceLocator.lookup(ejbCommandConfig.ejbName());
     }
@@ -341,4 +340,6 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
     }
    
   }
+
+
 }

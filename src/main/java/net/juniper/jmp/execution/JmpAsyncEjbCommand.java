@@ -1,26 +1,29 @@
 package net.juniper.jmp.execution;
 
-import com.google.common.base.Preconditions;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import net.juniper.jmp.cmp.distribution.LoadSplitStrategy;
 import net.juniper.jmp.cmp.system.JMPScopedContext;
 import net.juniper.jmp.cmp.system.JxServiceLocator;
 import net.juniper.jmp.exception.JMPException;
 import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandBuilder;
+import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandDuplicateHandler;
 import net.juniper.jmp.execution.JmpCommandSettings.JmpNodeFilter;
 import rx.Observable;
 import rx.Observable.OnSubscribe;
 import rx.Subscriber;
 import rx.functions.Func0;
 
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import com.google.common.base.Preconditions;
 
 /**
  * Simple Async EJB Command wrapper class that can be used to make asynchronous EJB calls. This call automatically splits the EJB methods 
@@ -186,10 +189,7 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
    * Look UP the EJB in case node is reserved use the reserved node
    * @return
    */
-  protected Object lookupEJB() {
-    if (true) {
-      return JxServiceLocator.lookup(ejbCommandConfig.ejbName());
-    }
+  private Object lookupEJB() {
     if (this.getReservedNodeIP() != null) {
       return JxServiceLocator.lookupByIP(ejbCommandConfig.ejbName(), this.getReservedNodeIP(),
           new JMPScopedContext());
@@ -255,8 +255,6 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
     
     
     protected static JmpAsyncCommandBuilder withCommandGroupKey(JmpCommandGroupKey commandGroupKey) {
-      Preconditions.checkArgument(commandGroupKey != null);
-
       return new JmpAsyncCommandBuilder(commandGroupKey);
     }
     
@@ -265,8 +263,7 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
     private JmpAsyncCommandBuilder(JmpEJBCommandConfig ejbCommandConfig, JmpCommandGroupKey commandGroupKey) {
       this.commandGroupKey = commandGroupKey;
       this.ejbCommandConfig = ejbCommandConfig;
-      //Default command key
-      this.commandKey = JmpCommandKey.Factory.asKey(ejbCommandConfig.ejbName() + ejbCommandConfig.method());
+      
     }
     
     private JmpAsyncCommandBuilder(JmpCommandGroupKey commandGroupKey) {
@@ -282,6 +279,17 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
     }
     
   
+    public JmpAsyncCommandBuilder andDefaultCommandKey() {
+    //Default command key
+      StringBuilder commandKey = new StringBuilder();
+      if (commandKey.toString().isEmpty()){
+        //Pseudo Random could conflict
+        Random rand = new Random();
+        commandKey.append(":").append(rand.nextDouble());
+      }
+      this.commandKey = JmpCommandKey.Factory.asKey(ejbCommandConfig.ejbName() + ejbCommandConfig.method() + commandKey.toString());
+      return this;
+    }
     
     public JmpAsyncCommandBuilder andSplitStrategy(LoadSplitStrategy splitStrategy, int splitIndex) {
       this.splitStrategy = splitStrategy;
@@ -334,12 +342,10 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
       return this;
     }
     
-    public JmpAsyncCommandBuilder andFailOnDuplicateCommand() {
-      this.failOnDuplicateCommand = true;
+    public JmpAsyncCommandBuilder andDuplicateCommandHandler(JmpCommandDuplicateHandler duplicateHandler) {
+      this.duplicateCommandHandler = duplicateHandler;
       return this;
     }
    
   }
-
-
 }

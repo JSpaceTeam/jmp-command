@@ -38,7 +38,6 @@ public class JmpAsyncCommandTest {
             super(commandBuilder);
         }
 
-        @Override
         protected Object lookupEJB() {
             Calculator mock = mock(Calculator.class);
             when(mock.add(1, 2)).thenReturn(new AsyncResult<>(3));
@@ -79,7 +78,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
 
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         ObservableResult<Integer> first = myAsyncCommand.toObservable().toBlocking().first();
@@ -108,7 +107,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
 
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         Throwable exception = null;
@@ -138,7 +137,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
 
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         ObservableResult<Integer> first = myAsyncCommand.toObservable().toBlocking().first();
@@ -166,7 +165,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         myAsyncCommand.toObservable().subscribe();
         await(1);
@@ -208,7 +207,6 @@ public class JmpAsyncCommandTest {
                 super(commandBuilder);
             }
 
-            @Override
             protected Object lookupEJB() {
                 Calculator mock = new Calculator() {
                     @Override
@@ -247,7 +245,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andSplitStrategy(new FixedSizeListSplitStrategy(), 0).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andSplitStrategy(new FixedSizeListSplitStrategy(), 0).andMaxRetry(3);
         SplitAsyncClass splitAsyncClass = new SplitAsyncClass(commandBuilder);
         final AtomicInteger finalAnswer = new AtomicInteger();
         splitAsyncClass.toObservable().toBlocking().forEach(new Action1<ObservableResult<Integer>>() {

@@ -6,17 +6,14 @@ import junit.framework.Assert;
 import junit.framework.TestCase;
 import net.juniper.jmp.cmp.jobManager.JobPrevalidationResult.ResultEnum;
 import net.juniper.jmp.execution.JmpCommonCommand.JmpCommonCommandBuilder;
-import org.junit.Test;
 import rx.Subscriber;
 import rx.functions.Action1;
 
-public class JmpCommonCommandTest  {
-
-
-    @Test
+public class JmpCommonCommandTest extends TestCase {
+  
    public void testOne() {
      JmpCommonCommand<Integer> cmd = new JmpCommonCommand<Integer>(JmpCommonCommandBuilder
-         .withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test"))) {
+         .withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test")).andDefaultKey()) {
           @Override
           public Integer run() {
              return 1;
@@ -32,10 +29,9 @@ public class JmpCommonCommandTest  {
     }
      
    }
-
-    @Test
+   
    public void testCommonWithPrevalidationRetryExceeded() {
-     JmpCommonCommandBuilder bldr = JmpCommonCommandBuilder.withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test"))
+     JmpCommonCommandBuilder bldr = JmpCommonCommandBuilder.withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test")).andDefaultKey()
          .andMaxRetry(5)
          .andPrevalidate(new JmpCommandPrevalidator() {
           @Override
@@ -58,10 +54,10 @@ public class JmpCommonCommandTest  {
      Assert.assertEquals("Max retry exceeded".trim(), e.getMessage().trim());
      
    }
-
-    @Test
+   
    public void testCommonWithPrevalidationSuccess() {
      JmpCommonCommandBuilder bldr = JmpCommonCommandBuilder.withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test"))
+         .andDefaultKey()
          .andMaxRetry(5)
          .andPrevalidate(new JmpCommandPrevalidator() {
           @Override
@@ -81,11 +77,11 @@ public class JmpCommonCommandTest  {
       Assert.fail(e.getMessage());
     }
    }
-
-    @Test
+   
    public void testCommonWithPrevalidationFail() {
      final String validationMessage = "Validation failed dont run command";
      JmpCommonCommandBuilder bldr = JmpCommonCommandBuilder.withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test"))
+         .andDefaultKey()
          .andMaxRetry(5)
          .andPrevalidate(new JmpCommandPrevalidator() {
           @Override
@@ -108,9 +104,10 @@ public class JmpCommonCommandTest  {
      Assert.assertEquals(validationMessage, e.getMessage().trim());
    }   
    
-   @Test
+   
    public void testFailOnCommand() {
      JmpCommonCommandBuilder bldr = JmpCommonCommandBuilder.withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test"))
+         .andDefaultKey()
          .andMaxRetry(5);
      JmpCommonCommand<Integer> cmd = new JmpCommonCommand<Integer>(bldr) {
       @Override
@@ -138,11 +135,11 @@ public class JmpCommonCommandTest  {
      await(1000L);
      Assert.assertEquals(true, arithmaticExceptionReceived.get());
    }
-
-   @Test
+  
    public void testCommonWithPrevalidationFailOnSubscribe() {
      final String validationMessage = "Validation failed dont run command";
      JmpCommonCommandBuilder bldr = JmpCommonCommandBuilder.withCommandGroupKey(JmpCommandGroupKey.Factory.asKey("Test"))
+         .andDefaultKey()
          .andMaxRetry(5)
          .andPrevalidate(new JmpCommandPrevalidator() {
           @Override

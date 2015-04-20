@@ -4,9 +4,12 @@ import java.util.List;
 
 import net.juniper.jmp.cmp.jobManager.JobPrevalidationResult.ResultEnum;
 import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
+import net.juniper.jmp.execution.JmpAbstractCommand.JmpCommandState;
+import net.juniper.jmp.execution.JmpAbstractCommand.JmpDuplicateCommandAction;
 import rx.functions.Func0;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 
 public abstract class JmpCommandSettings {
   
@@ -22,18 +25,23 @@ public abstract class JmpCommandSettings {
   protected Long retryInMillsAfterNodeFilter;
   
 
- 
-
-  protected boolean failOnDuplicateCommand;
+  protected Optional<JmpCommandDuplicateHandler> duplicateCommandHandler = Optional.absent();
   
   public interface JmpNodeFilter {
     
      public List<NodeLoadSummary> filter(List<NodeLoadSummary> nodeList);
   }
   
+ 
+  public interface JmpCommandDuplicateHandler {
+    public JmpDuplicateCommandAction call(JmpCommandState existingCommandState);
+  }
   
   public JmpCommandSettings(JmpCommandBuilder builder) {
      
+    Preconditions.checkArgument(builder.commandGroupKey != null, "Jmp Command Group Key cannot be null");
+    Preconditions.checkArgument(builder.commandKey != null, "JmpCommandKey cannot be null");
+    
     if (builder.commandPrevalidator != null) {
        this.commandPrevalidator = Optional.of(builder.commandPrevalidator);
      } else {
@@ -53,7 +61,9 @@ public abstract class JmpCommandSettings {
        this.nodeFilter = Optional.of(new JmpNoNodeFilter());
      }
      this.retryInMillsAfterEstimation = builder.retryInMillsAfterEstimation;
-     this.failOnDuplicateCommand = builder.failOnDuplicateCommand;
+     if (builder.duplicateCommandHandler != null) {
+       this.duplicateCommandHandler =  Optional.of(builder.duplicateCommandHandler);
+     }
      this.retryInMillsAfterNodeFilter = builder.retryInMillsAfterNodeFilter;
   }
   
@@ -79,9 +89,9 @@ public abstract class JmpCommandSettings {
    */
   public abstract static class JmpCommandBuilder {
     
-    protected JmpCommandGroupKey commandGroupKey;
+    protected JmpCommandGroupKey commandGroupKey = null;
     
-    protected JmpCommandKey commandKey;
+    protected JmpCommandKey commandKey = null;
     
     
     protected JmpCommandPrevalidator commandPrevalidator;
@@ -96,8 +106,8 @@ public abstract class JmpCommandSettings {
     
     protected Long retryInMillsAfterNodeFilter = 10000L;
     
-    protected Boolean failOnDuplicateCommand = false;
-    
+    protected JmpCommandDuplicateHandler duplicateCommandHandler = null;
+   
   }
   
   /**

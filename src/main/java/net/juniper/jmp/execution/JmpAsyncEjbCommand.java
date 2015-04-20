@@ -189,7 +189,7 @@ public  class JmpAsyncEjbCommand<R> extends JmpAbstractCommand<R> {
    * Look UP the EJB in case node is reserved use the reserved node
    * @return
    */
-  private Object lookupEJB() {
+  protected Object lookupEJB() {
     if (this.getReservedNodeIP() != null) {
       return JxServiceLocator.lookupByIP(ejbCommandConfig.ejbName(), this.getReservedNodeIP(),
           new JMPScopedContext());

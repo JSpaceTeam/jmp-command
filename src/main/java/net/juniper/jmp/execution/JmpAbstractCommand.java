@@ -1,12 +1,18 @@
 package net.juniper.jmp.execution;
 
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import net.juniper.jmp.cmp.jobManager.JobPrevalidationResult.ResultEnum;
 import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
 import net.juniper.jmp.exception.JMPException;
 import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandBuilder;
 
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.log4j.Logger;
 
 import rx.Observable;
@@ -17,11 +23,25 @@ import rx.functions.Action1;
 import rx.schedulers.Schedulers;
 
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
-public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
+public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
 
   private static final Logger logger = Logger.getLogger(JmpAsyncEjbCommand.class);
 
+  
+  public enum JmpCommandState {
+    UNSUBSCRIBED, SCHEDULED, PENDING, VALIDATING, RUNNING, COMPLETED;
+  }
+  
+  public enum JmpDuplicateCommandAction {
+    REJECT, QUEUE
+  }
+  
+  
+  private AtomicReference<JmpCommandState> commandState = new AtomicReference<>(JmpCommandState.UNSUBSCRIBED);
+  
+  private AtomicReference<CountDownLatch> waitCompleteLatch = new AtomicReference<>();  
   
   protected final JmpCommandGroupKey groupKey;
   
@@ -31,10 +51,15 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
   
   private JmpCommandResourceUtlizationHandler<R> resourceUtlizationHandler;
   
-  private static final ConcurrentSkipListMap<String, JmpAbstractCommand<?>> currentActiveCommands =  new ConcurrentSkipListMap<String, JmpAbstractCommand<?>>();
-
+  private AtomicReference<Observable<ObservableResult<R>>> actualCommand = new AtomicReference<Observable<ObservableResult<R>>>();
   
+  private static final ExecutorService commandExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*2, 
+    new ThreadFactoryBuilder().setNameFormat("Jmp-Command-Pool-%d").build());
+  
+  private static final ConcurrentSkipListMap<String,JmpAbstractCommand<?>> currentActiveCommands =  new ConcurrentSkipListMap<>();
+
   @testOnly public Boolean mockStats = new Boolean(false);
+  
   
   
   protected JmpAbstractCommand(JmpCommandGroupKey groupKey, JmpCommandKey commandKey) {
@@ -62,6 +87,16 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
   @Override
   public JmpCommandKey getCommandKey() {
     return commandKey;
+  }
+  
+  @Override
+  public boolean isCommandExecuted() {
+    return commandState.get().ordinal() > JmpCommandState.COMPLETED.ordinal();
+  }
+  
+  @Override
+  public JmpCommandState getCommandState() {
+    return commandState.get();
   }
   
   public final static Logger logger() {
@@ -134,6 +169,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
    */
   public Observable<ObservableResult<R>> toObservable() {
 
+    
     Observable<ObservableResult<R>> obs = null;
 
     if (resourceUtlizationHandler == null) {
@@ -148,19 +184,24 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
               // Nothing to do here
               return;
             }
-            if (commandSettings.failOnDuplicateCommand) {
-              logger().warn(" Check command exists " + getCommandName());
-              JmpAbstractCommand<?> _current =
-                  currentActiveCommands.putIfAbsent(getCommandName(), _command);
-              if (_current != null && _current != _command) {
-                logger.error(" Command Exists reject this");
-                child.onError(new JmpCommandDuplicateExecutionRejected(String.format(
-                    " command %s : %s is already active this command is rejected", groupKey.name(),
-                    commandKey.name())));
+            commandState.set(JmpCommandState.VALIDATING);
+            JmpAbstractCommand<?> _current =
+                currentActiveCommands.putIfAbsent(getCommandName(), _command);
+            logger().debug("current  Command = "+ _command + " existing command = " + _current);
+            boolean duplicateCommand = (_current != null && _current != _command);
+            if (!commandSettings.duplicateCommandHandler.isPresent() && duplicateCommand) {
+              logger().warn(" Reject duplicate command exists " + getCommandName());
+              rejectDuplicateCommand(child);
+              return;
+            }
+
+            if (commandSettings.duplicateCommandHandler.isPresent() && duplicateCommand) {
+              boolean proceed = proceedAfterDuplicateHandler(_current, child);
+              if (!proceed) {
+                rejectDuplicateCommand(child);
                 return;
               }
             }
-
             Long memoryRequired = 0L;
 
             Optional<NodeLoadSummary> selectedNode = Optional.absent();
@@ -183,9 +224,11 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
                   commandSettings.getPrevalidator().get().prevalidate();
               if (jmpCommandPrevalidationResult.getResult() == ResultEnum.SUCCESS) {
                 resourceUtlizationHandler.setCommandRunning();
+                commandState.set(JmpCommandState.RUNNING);
                 getDecoratedObservable().unsafeSubscribe(child);
 
               } else if (jmpCommandPrevalidationResult.getResult() == ResultEnum.QUEUED) {
+                commandState.set(JmpCommandState.PENDING);
                 child.onError(new JmpCommandPrevalidationException(jmpCommandPrevalidationResult));
                 releaseResource();
               } else {
@@ -194,13 +237,76 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
             }
           }
         }).retryWhen(new JmpCommandPrevalidationHandler<R>(this).retryHandler())
-        .subscribeOn(Schedulers.io());
-
-
-    return obs.doOnError(onError()).doOnCompleted(cleanupAfterCommandTerimation());
+        .subscribeOn(Schedulers.from(commandExecutor));
+    
+    obs = obs.doOnError(onError()).doOnCompleted(cleanupAfterCommandTerimation());
+    
+    actualCommand.compareAndSet(null, obs);
+    
+    return  Observable
+        .create(new OnSubscribe<ObservableResult<R>>() {
+          @Override
+          public void call(Subscriber<? super ObservableResult<R>> child) {
+            if (child.isUnsubscribed()) {
+              // Nothing to do here
+              return;
+            }
+            if (!commandState.compareAndSet(JmpCommandState.UNSUBSCRIBED, JmpCommandState.SCHEDULED)){
+              child.onError(new JmpCommandRejected(String.format("Command %s is already in state %s cannot be subscribed again, try using replay() "
+                  + " if multiple clients needs to subscribe on same command without executing multiple times ", commandKey.name(), commandState.get())));
+            }
+            actualCommand.get().subscribe(child);
+          }
+        });
   }
-  
-  
+
+  /**
+   * Handle duplicate command
+   * @param _current
+   * @param child
+   */
+  private boolean proceedAfterDuplicateHandler(JmpAbstractCommand<?> _current, Subscriber<? super ObservableResult<R>> child) {
+    AtomicReference<JmpCommandState> activeCommandState = new AtomicReference<>(_current.getCommandState());
+    JmpDuplicateCommandAction nextAction = commandSettings.duplicateCommandHandler.get().call(activeCommandState.get());
+    while (!activeCommandState.compareAndSet(activeCommandState.get(), _current.getCommandState())) {
+      activeCommandState.set(_current.getCommandState());
+      nextAction = commandSettings.duplicateCommandHandler.get().call(activeCommandState.get());
+    }
+    boolean proceed = false;
+    switch(nextAction){
+      case QUEUE:
+        if (!_current.waitCompleteLatch.compareAndSet(null, new CountDownLatch(1))) {
+          rejectDuplicateCommand(child);
+          proceed = false;
+          break;
+        }
+        logger().warn(String.format("Duplicate command %s Queued", commandKey.name()));
+        commandState.set(JmpCommandState.PENDING);
+        while(_current.commandState.get() != JmpCommandState.COMPLETED) {
+          try {
+            _current.waitCompleteLatch.get().await(10, TimeUnit.SECONDS);
+          } catch (InterruptedException e) {
+            //Woken up 
+          }
+        }
+        currentActiveCommands.put(getCommandName(), this);
+        proceed = true;
+        break;
+      case REJECT:
+        rejectDuplicateCommand(child);
+        proceed = false;
+      default:
+        throw new NotImplementedException("Action not implemented");
+    }
+    return proceed;
+  }
+ 
+  private void rejectDuplicateCommand(Subscriber<? super ObservableResult<R>> child) {
+    commandState.set(JmpCommandState.UNSUBSCRIBED);
+    child.onError(new JmpCommandDuplicateExecutionRejected(String.format(
+      " command %s : %s is already active this command is rejected", groupKey.name(),
+      commandKey.name())));
+  }
  
   private Action1<Throwable> onError() {
     final JmpAbstractCommand<R> _command = this;
@@ -223,10 +329,17 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
       @Override
       public void call() {
         _command.releaseResource();
-        currentActiveCommands.remove(getCommandName(), _command);
+        if (_command.waitCompleteLatch.get()!=null) {
+          _command.waitCompleteLatch.get().countDown();
+        } else {
+          logger().debug("Remove from active command after termination " + _command + " count : " +currentActiveCommands.size());
+          currentActiveCommands.remove(getCommandName());
+        }
+        commandState.set(JmpCommandState.COMPLETED);
       }
     };
   }
+  
   
   /**
    * decorated observable 
@@ -267,4 +380,5 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo<R> {
   protected Long getRetryTime() {
     return resourceUtlizationHandler.getRetrytime();
   }
+  
 }

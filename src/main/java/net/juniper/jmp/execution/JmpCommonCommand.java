@@ -1,6 +1,10 @@
 package net.juniper.jmp.execution;
 
+
+import java.util.Random;
+
 import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandBuilder;
+import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandDuplicateHandler;
 import rx.Observable;
 import rx.Observable.OnSubscribe;
 import rx.Subscriber;
@@ -70,6 +74,12 @@ public abstract class JmpCommonCommand<R> extends JmpAbstractCommand<R> {
       this.commandGroupKey = commandGroupKey;
     }
 
+    public JmpCommonCommandBuilder andDefaultKey() {
+      Random random = new Random();
+      this.commandKey = JmpCommandKey.Factory.asKey(commandGroupKey.name() + ":" + random.nextDouble());
+      return this;
+    }
+    
     public JmpCommonCommandBuilder andCommandKey(JmpCommandKey key) {
       this.commandKey = key;
       return this;
@@ -90,9 +100,9 @@ public abstract class JmpCommonCommand<R> extends JmpAbstractCommand<R> {
       this.maxNumValidationRetry = maxCommandRetry;
       return this;
     }
-
-    public JmpCommonCommandBuilder andFailOnDuplicateCommand() {
-      this.failOnDuplicateCommand = true;
+    
+    public JmpCommonCommandBuilder andDuplicateCommandHandler(JmpCommandDuplicateHandler duplicateHandler) {
+      this.duplicateCommandHandler = duplicateHandler;
       return this;
     }
 

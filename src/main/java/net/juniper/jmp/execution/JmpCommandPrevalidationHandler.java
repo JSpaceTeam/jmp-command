@@ -3,7 +3,6 @@ package net.juniper.jmp.execution;
 import java.io.Serializable;
 import java.util.concurrent.TimeUnit;
 
-import net.juniper.jmp.exception.JMPException;
 import rx.Observable;
 import rx.functions.Func1;
 import rx.functions.Func2;
@@ -34,9 +33,9 @@ class JmpCommandPrevalidationHandler<R> implements JmpCommandRetryHandler {
           if (!isExceptionRetriable(passThroughResult.t)) {
             return Observable.error(passThroughResult.t);
           }
-          JmpAbstractCommand.logger().info("Retry due to prevalidation failure command: " + command.getCommandName());
+          JmpAbstractCommand.logger().warn("Retry due to prevalidation failure command: " + command.getCommandName() + " Error: " + passThroughResult.t.getMessage());
           if (passThroughResult.retryCount == (command.commandSettings.getMaxCommandRetry())) {
-            return Observable.error(new JMPException("Max retry exceeded  ", passThroughResult.t));
+            return Observable.error(new JmpCommandRetryTimedOutException("Max retry exceeded  ", passThroughResult.t));
           }
           return Observable.timer(getRetryInMillis(passThroughResult), TimeUnit.MILLISECONDS);
         }

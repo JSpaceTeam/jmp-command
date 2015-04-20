@@ -5,16 +5,14 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+import rx.functions.Action0;
 import rx.functions.Action1;
 
 import javax.ejb.AsyncResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -38,7 +36,6 @@ public class JmpAsyncCommandTest {
             super(commandBuilder);
         }
 
-        @Override
         protected Object lookupEJB() {
             Calculator mock = mock(Calculator.class);
             when(mock.add(1, 2)).thenReturn(new AsyncResult<>(3));
@@ -70,6 +67,7 @@ public class JmpAsyncCommandTest {
                 .withEJBCommandAndGroupKey(
                         JmpEJBCommandConfig.Factory.withEJb("my-mock-bean-2", "add",
                                 1, 2), JmpCommandGroupKey.Factory.asKey("domain-group"))
+                .andDefaultCommandKey()
                 .andPrevalidate(new JmpCommandPrevalidator() {
                     public JmpCommandPrevalidationResult prevalidate() {
                         JmpCommandPrevalidationResult create =
@@ -79,7 +77,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
 
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         ObservableResult<Integer> first = myAsyncCommand.toObservable().toBlocking().first();
@@ -99,6 +97,7 @@ public class JmpAsyncCommandTest {
                 .withEJBCommandAndGroupKey(
                         JmpEJBCommandConfig.Factory.withEJb("my-mock-bean", "add",
                                 10, 10).andTimeout(100L), JmpCommandGroupKey.Factory.asKey("domain-group"))
+                .andDefaultCommandKey()
                 .andPrevalidate(new JmpCommandPrevalidator() {
                     public JmpCommandPrevalidationResult prevalidate() {
                         JmpCommandPrevalidationResult create =
@@ -108,7 +107,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
 
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         Throwable exception = null;
@@ -129,6 +128,7 @@ public class JmpAsyncCommandTest {
                 .withEJBCommandAndGroupKey(
                         JmpEJBCommandConfig.Factory.withEJb("my-mock-bean-"+ UUID.randomUUID(), "add",
                                 1, 2), JmpCommandGroupKey.Factory.asKey("domain-group"))
+                .andDefaultCommandKey()
                 .andPrevalidate(new JmpCommandPrevalidator() {
                     public JmpCommandPrevalidationResult prevalidate() {
                         JmpCommandPrevalidationResult create =
@@ -138,7 +138,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
 
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
         ObservableResult<Integer> first = myAsyncCommand.toObservable().toBlocking().first();
@@ -153,10 +153,12 @@ public class JmpAsyncCommandTest {
 
     @Test
     public void testCommanRerunFail() {
+        final CountDownLatch latch = new CountDownLatch(1);
         JmpAsyncEjbCommand.JmpAsyncCommandBuilder commandBuilder = JmpAsyncEjbCommand.JmpAsyncCommandBuilder
                 .withEJBCommandAndGroupKey(
                         JmpEJBCommandConfig.Factory.withEJb("my-mock-bean-"+ UUID.randomUUID(), "add",
                                 1, 2), JmpCommandGroupKey.Factory.asKey("domain-group"))
+                .andDefaultCommandKey()
                 .andPrevalidate(new JmpCommandPrevalidator() {
                     public JmpCommandPrevalidationResult prevalidate() {
                         JmpCommandPrevalidationResult create =
@@ -166,9 +168,19 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andMaxRetry(3);
         MyAsyncCommand myAsyncCommand = new MyAsyncCommand(commandBuilder);
-        myAsyncCommand.toObservable().subscribe();
+        myAsyncCommand.toObservable().doOnCompleted(new Action0() {
+            @Override
+            public void call() {
+                latch.countDown();
+            }
+        }).subscribe();
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         await(1);
         final AtomicBoolean disallow = new AtomicBoolean(false);
         myAsyncCommand.toObservable().subscribe(new Action1<ObservableResult<Integer>>() {
@@ -183,12 +195,12 @@ public class JmpAsyncCommandTest {
         }, new Action1<Throwable>() {
             @Override
             public void call(Throwable throwable) {
-                if (throwable.getMessage().contains("Command has already been executed")) {
+                if (throwable instanceof JmpCommandRejected) {
                     disallow.set(true);
                 }
             }
         });
-        await(1);
+        await(2);
         Assert.assertEquals(true, disallow.get());
     }
 
@@ -208,7 +220,6 @@ public class JmpAsyncCommandTest {
                 super(commandBuilder);
             }
 
-            @Override
             protected Object lookupEJB() {
                 Calculator mock = new Calculator() {
                     @Override
@@ -238,6 +249,7 @@ public class JmpAsyncCommandTest {
                 .withEJBCommandAndGroupKey(
                         JmpEJBCommandConfig.Factory.withEJb("my-mock-bean-3", "addAll",
                                 sumList).andTimeout(100L), JmpCommandGroupKey.Factory.asKey("domain-group"))
+                .andDefaultCommandKey()
                 .andPrevalidate(new JmpCommandPrevalidator() {
                     public JmpCommandPrevalidationResult prevalidate() {
                         JmpCommandPrevalidationResult create =
@@ -247,7 +259,7 @@ public class JmpAsyncCommandTest {
                         create.setRetryTimeInMillis(200);
                         return create;
                     }
-                }).andSplitStrategy(new FixedSizeListSplitStrategy(), 0).andMaxRetry(3).andFailOnDuplicateCommand();
+                }).andSplitStrategy(new FixedSizeListSplitStrategy(), 0).andMaxRetry(3);
         SplitAsyncClass splitAsyncClass = new SplitAsyncClass(commandBuilder);
         final AtomicInteger finalAnswer = new AtomicInteger();
         splitAsyncClass.toObservable().toBlocking().forEach(new Action1<ObservableResult<Integer>>() {

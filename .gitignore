@@ -5,3 +5,5 @@ project/project/*
 build/*
 transaction.log
 .gradle
+/build
+/bin

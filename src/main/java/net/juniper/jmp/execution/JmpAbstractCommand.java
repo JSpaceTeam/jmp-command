@@ -3,12 +3,14 @@ package net.juniper.jmp.execution;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import net.juniper.jmp.cmp.jobManager.JobPrevalidationResult.ResultEnum;
 import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
+import net.juniper.jmp.common.configuration.ServerConfiguration;
 import net.juniper.jmp.exception.JMPException;
 import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandBuilder;
 
@@ -23,6 +25,7 @@ import rx.functions.Action1;
 import rx.schedulers.Schedulers;
 
 import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
@@ -53,8 +56,18 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
   
   private AtomicReference<Observable<ObservableResult<R>>> actualCommand = new AtomicReference<Observable<ObservableResult<R>>>();
   
-  private static final ExecutorService commandExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()*2, 
-    new ThreadFactoryBuilder().setNameFormat("Jmp-Command-Pool-%d").build());
+  final JmpCommandMetrics metrics;
+  
+  private static final ExecutorService commandExecutor = new ThreadPoolExecutor(Runtime
+    .getRuntime().availableProcessors(), ServerConfiguration.getUntypedAsInt("jmp-command-max-threads", 32, new Predicate<Integer>() {
+      @Override
+      public boolean apply(Integer value) {
+        //Lets no allow uses to put too many threads here
+        return value > 0 && value < 100;
+      }}), 60, TimeUnit.SECONDS,
+    new LinkedBlockingQueue<Runnable>(), new ThreadFactoryBuilder().setNameFormat("Jmp-Command-Pool-%d").build());
+  
+  
   
   private static final ConcurrentSkipListMap<String,JmpAbstractCommand<?>> currentActiveCommands =  new ConcurrentSkipListMap<>();
 
@@ -69,6 +82,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
       this.commandKey = commandKey;
     }
     this.groupKey = groupKey;
+    this.metrics = JmpCommandMetrics.getInstance(groupKey, commandKey);
   }
   
   protected JmpAbstractCommand(JmpCommandBuilder builder) {
@@ -91,7 +105,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
   
   @Override
   public boolean isCommandExecuted() {
-    return commandState.get().ordinal() > JmpCommandState.COMPLETED.ordinal();
+    return commandState.get().ordinal() >= JmpCommandState.COMPLETED.ordinal();
   }
   
   @Override
@@ -112,6 +126,13 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
        return resourceUtlizationHandler.getReservedNode().isPresent() ? resourceUtlizationHandler.getReservedNode().get().getIpAddress() : null;
     }
     return null;
+  }
+  
+  public String getCommandMetrics() {
+    if (isCommandExecuted()) {
+      return metrics.getStatsOutput();
+    }
+    return "";
   }
   
   /**
@@ -185,6 +206,8 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
               return;
             }
             commandState.set(JmpCommandState.VALIDATING);
+            metrics.markResouceWaitEnd();
+            metrics.markValidationQueueEnd();
             JmpAbstractCommand<?> _current =
                 currentActiveCommands.putIfAbsent(getCommandName(), _command);
             logger().debug("current  Command = "+ _command + " existing command = " + _current);
@@ -208,27 +231,33 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
             memoryRequired = commandSettings.getMemoryEstimator().get().call();
             // Memory first
             if (memoryRequired > 0) {
+              metrics.markResourceCalculationStart();
               selectedNode =
                   resourceUtlizationHandler.calcuateAndGetAvailableNodeList(memoryRequired);
+              metrics.markResourceCalculationEnd();
             }
 
             if (memoryRequired > 0 && !selectedNode.isPresent()) {
-
-              child.onError(new JmpCommandResourceUnavailableException());
-
+              metrics.markResouceWaitStart();
+              child.onError(new JmpCommandResourceUnavailableException(
+                String.format("Command %s cannot run, system does not have enough resources. resources: { memoryRequired: %d Bytes} ",(groupKey.name()+":"+commandKey.name()), memoryRequired)));
             } else {
 
               resourceUtlizationHandler.reserveResource(memoryRequired, selectedNode);
 
+              metrics.markValidationStart();
               JmpCommandPrevalidationResult jmpCommandPrevalidationResult =
                   commandSettings.getPrevalidator().get().prevalidate();
+              metrics.markValidationEnd();
               if (jmpCommandPrevalidationResult.getResult() == ResultEnum.SUCCESS) {
                 resourceUtlizationHandler.setCommandRunning();
                 commandState.set(JmpCommandState.RUNNING);
+                metrics.markExecutionStart();
                 getDecoratedObservable().unsafeSubscribe(child);
-
+               
               } else if (jmpCommandPrevalidationResult.getResult() == ResultEnum.QUEUED) {
                 commandState.set(JmpCommandState.PENDING);
+                metrics.markValidationQueueStart();
                 child.onError(new JmpCommandPrevalidationException(jmpCommandPrevalidationResult));
                 releaseResource();
               } else {
@@ -255,6 +284,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
               child.onError(new JmpCommandRejected(String.format("Command %s is already in state %s cannot be subscribed again, try using replay() "
                   + " if multiple clients needs to subscribe on same command without executing multiple times ", commandKey.name(), commandState.get())));
             }
+            metrics.markCommandStarted();
             actualCommand.get().subscribe(child);
           }
         });
@@ -282,6 +312,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
         }
         logger().warn(String.format("Duplicate command %s Queued", commandKey.name()));
         commandState.set(JmpCommandState.PENDING);
+        metrics.markDuplicateStart();
         while(_current.commandState.get() != JmpCommandState.COMPLETED) {
           try {
             _current.waitCompleteLatch.get().await(10, TimeUnit.SECONDS);
@@ -289,6 +320,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
             //Woken up 
           }
         }
+        metrics.markDuplicateEnd();
         currentActiveCommands.put(getCommandName(), this);
         proceed = true;
         break;
@@ -328,6 +360,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
     return new Action0() {
       @Override
       public void call() {
+        metrics.markExecutionEnd();
         _command.releaseResource();
         if (_command.waitCompleteLatch.get()!=null) {
           _command.waitCompleteLatch.get().countDown();
@@ -380,5 +413,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
   protected Long getRetryTime() {
     return resourceUtlizationHandler.getRetrytime();
   }
+  
+  
   
 }

@@ -9,6 +9,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import net.juniper.jmp.cmp.jobManager.InternalScheduleContext.ContextType;
@@ -23,6 +24,7 @@ import net.juniper.jmp.cmp.systemService.load.LoadStatisticsMO.ResourceState;
 import net.juniper.jmp.cmp.systemService.load.LoadStatisticsResourceUpdater;
 import net.juniper.jmp.cmp.systemService.load.MaxMemSizeMO;
 import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
+import net.juniper.jmp.common.configuration.ServerConfiguration;
 import net.juniper.jmp.tracer.uid.UniqueIdGenerator;
 
 import com.google.common.base.Optional;
@@ -157,16 +159,16 @@ final class JmpCommandResourceUtlizationHandler<R> {
         if (stat == null) {
           stat = new LoadStatisticsMO();
           stat.setResourceId(resourceId);
-          stat.setType(command.getClass().getCanonicalName());
+          stat.setType(command.groupKey.name());
           stat.setContextType(ContextType.FIRST_ROOT_JOB);
-          stat.setSubtype(command.getCommandName());
+          stat.setSubtype(command.commandKey.name());
           stat.setCreationTimestamp(Calendar.getInstance().getTime().getTime());
           stat.setLastModifiedTimestamp(stat.getCreationTimestamp());
           stat.setEstimatedMemory(memoryEstimation);
           stat.setIpAddress(reservedNode.get().getIpAddress());
           stat.setQueue("");
           stat.setState(ResourceState.QUEUED);
-          loadStatIntf.createResource(stat);
+          loadStatIntf.createResource(stat, ServerConfiguration.getUntypedAsLong("command-resource-expiration-timeout", 120L, null) , TimeUnit.MINUTES);
         } else {
           stat.setLastModifiedTimestamp(stat.getCreationTimestamp());
           stat.setEstimatedMemory(memoryEstimation);
@@ -301,6 +303,11 @@ final class JmpCommandResourceUtlizationHandler<R> {
     @Override
     public long getReservedMemory() {
       return 10;
+    }
+
+    @Override
+    public void createResource(LoadStatisticsMO statistic, long timeToLive, TimeUnit timeUnit) {
+      createResource(statistic);
     }
   }
   

@@ -1,22 +1,14 @@
 package net.juniper.jmp.execution;
 
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-
+import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import net.juniper.jmp.cmp.jobManager.JobPrevalidationResult.ResultEnum;
 import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
 import net.juniper.jmp.common.configuration.ServerConfiguration;
 import net.juniper.jmp.exception.JMPException;
 import net.juniper.jmp.execution.JmpCommandSettings.JmpCommandBuilder;
-
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.log4j.Logger;
-
 import rx.Observable;
 import rx.Observable.OnSubscribe;
 import rx.Subscriber;
@@ -24,9 +16,8 @@ import rx.functions.Action0;
 import rx.functions.Action1;
 import rx.schedulers.Schedulers;
 
-import com.google.common.base.Optional;
-import com.google.common.base.Predicate;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
 
@@ -59,12 +50,7 @@ public abstract class JmpAbstractCommand<R> implements JmpCommandInfo {
   final JmpCommandMetrics metrics;
   
   private static final ExecutorService commandExecutor = new ThreadPoolExecutor(Runtime
-    .getRuntime().availableProcessors(), ServerConfiguration.getUntypedAsInt("jmp-command-max-threads", 32, new Predicate<Integer>() {
-      @Override
-      public boolean apply(Integer value) {
-        //Lets no allow uses to put too many threads here
-        return value > 0 && value < 100;
-      }}), 60, TimeUnit.SECONDS,
+    .getRuntime().availableProcessors(), ServerConfiguration.getInt("jmp-command-max-threads", 32), 60, TimeUnit.SECONDS,
     new LinkedBlockingQueue<Runnable>(), new ThreadFactoryBuilder().setNameFormat("Jmp-Command-Pool-%d").build());
   
   

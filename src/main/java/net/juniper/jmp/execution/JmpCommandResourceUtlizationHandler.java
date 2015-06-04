@@ -1,33 +1,19 @@
 package net.juniper.jmp.execution;
 
-import static net.juniper.jmp.execution.JmpAbstractCommand.logger;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-
+import com.google.common.base.Optional;
 import net.juniper.jmp.cmp.jobManager.InternalScheduleContext.ContextType;
 import net.juniper.jmp.cmp.jobManager.JobResource;
 import net.juniper.jmp.cmp.system.JxServiceLocator;
 import net.juniper.jmp.cmp.system.utils.ServerInfo;
-import net.juniper.jmp.cmp.systemService.load.LoadCalculatorInterface;
-import net.juniper.jmp.cmp.systemService.load.LoadStatFilter;
-import net.juniper.jmp.cmp.systemService.load.LoadStatisticsInterface;
-import net.juniper.jmp.cmp.systemService.load.LoadStatisticsMO;
+import net.juniper.jmp.cmp.systemService.load.*;
 import net.juniper.jmp.cmp.systemService.load.LoadStatisticsMO.ResourceState;
-import net.juniper.jmp.cmp.systemService.load.LoadStatisticsResourceUpdater;
-import net.juniper.jmp.cmp.systemService.load.MaxMemSizeMO;
-import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
-import net.juniper.jmp.common.configuration.ServerConfiguration;
 import net.juniper.jmp.tracer.uid.UniqueIdGenerator;
 
-import com.google.common.base.Optional;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static net.juniper.jmp.execution.JmpAbstractCommand.logger;
 
 /**
  * Class to handle resource utilization of a command. 
@@ -168,7 +154,7 @@ final class JmpCommandResourceUtlizationHandler<R> {
           stat.setIpAddress(reservedNode.get().getIpAddress());
           stat.setQueue("");
           stat.setState(ResourceState.QUEUED);
-          loadStatIntf.createResource(stat, ServerConfiguration.getUntypedAsLong("command-resource-expiration-timeout", 120L, null) , TimeUnit.MINUTES);
+          loadStatIntf.createResource(stat);
         } else {
           stat.setLastModifiedTimestamp(stat.getCreationTimestamp());
           stat.setEstimatedMemory(memoryEstimation);
@@ -305,7 +291,6 @@ final class JmpCommandResourceUtlizationHandler<R> {
       return 10;
     }
 
-    @Override
     public void createResource(LoadStatisticsMO statistic, long timeToLive, TimeUnit timeUnit) {
       createResource(statistic);
     }

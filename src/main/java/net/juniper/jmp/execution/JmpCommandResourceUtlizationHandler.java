@@ -1,31 +1,19 @@
 package net.juniper.jmp.execution;
 
-import static net.juniper.jmp.execution.JmpAbstractCommand.logger;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-
+import com.google.common.base.Optional;
 import net.juniper.jmp.cmp.jobManager.InternalScheduleContext.ContextType;
 import net.juniper.jmp.cmp.jobManager.JobResource;
 import net.juniper.jmp.cmp.system.JxServiceLocator;
 import net.juniper.jmp.cmp.system.utils.ServerInfo;
-import net.juniper.jmp.cmp.systemService.load.LoadCalculatorInterface;
-import net.juniper.jmp.cmp.systemService.load.LoadStatFilter;
-import net.juniper.jmp.cmp.systemService.load.LoadStatisticsInterface;
-import net.juniper.jmp.cmp.systemService.load.LoadStatisticsMO;
+import net.juniper.jmp.cmp.systemService.load.*;
 import net.juniper.jmp.cmp.systemService.load.LoadStatisticsMO.ResourceState;
-import net.juniper.jmp.cmp.systemService.load.LoadStatisticsResourceUpdater;
-import net.juniper.jmp.cmp.systemService.load.MaxMemSizeMO;
-import net.juniper.jmp.cmp.systemService.load.NodeLoadSummary;
 import net.juniper.jmp.tracer.uid.UniqueIdGenerator;
 
-import com.google.common.base.Optional;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static net.juniper.jmp.execution.JmpAbstractCommand.logger;
 
 /**
  * Class to handle resource utilization of a command. 
@@ -157,9 +145,9 @@ final class JmpCommandResourceUtlizationHandler<R> {
         if (stat == null) {
           stat = new LoadStatisticsMO();
           stat.setResourceId(resourceId);
-          stat.setType(command.getClass().getCanonicalName());
+          stat.setType(command.groupKey.name());
           stat.setContextType(ContextType.FIRST_ROOT_JOB);
-          stat.setSubtype(command.getCommandName());
+          stat.setSubtype(command.commandKey.name());
           stat.setCreationTimestamp(Calendar.getInstance().getTime().getTime());
           stat.setLastModifiedTimestamp(stat.getCreationTimestamp());
           stat.setEstimatedMemory(memoryEstimation);
@@ -301,6 +289,10 @@ final class JmpCommandResourceUtlizationHandler<R> {
     @Override
     public long getReservedMemory() {
       return 10;
+    }
+
+    public void createResource(LoadStatisticsMO statistic, long timeToLive, TimeUnit timeUnit) {
+      createResource(statistic);
     }
   }
   

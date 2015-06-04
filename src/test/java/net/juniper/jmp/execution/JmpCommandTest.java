@@ -572,7 +572,9 @@ public class JmpCommandTest extends TestCase {
       JmpCommandTest.MyCommand cmd =
           new MyCommand(JmpAsyncCommandBuilder.withEJBCommandAndGroupKey(
             JmpEJBCommandConfig.Factory.withEJb(DomainManager.BEAN_NAME, "domainAdditionTest", 1,
-              null, null), JmpCommandGroupKey.Factory.asKey("domain-group")).andPrevalidate(
+              null, null), JmpCommandGroupKey.Factory.asKey("domain-group"))
+              .andDefaultCommandKey()
+              .andPrevalidate(
                 new JmpCommandPrevalidator() {
                   public JmpCommandPrevalidationResult prevalidate() {
                     JmpCommandPrevalidationResult create =
@@ -719,7 +721,7 @@ public class JmpCommandTest extends TestCase {
     final AtomicBoolean cmd2Failed = new AtomicBoolean(false);
 
     while(true) {
-      if (cmd.getCommandState() != JmpCommandState.UNSUBSCRIBED ||
+      if (cmd.getCommandState() != JmpCommandState.UNSUBSCRIBED &&
           cmd.getCommandState() != JmpCommandState.SCHEDULED) {
         break;
       }
@@ -777,7 +779,7 @@ public class JmpCommandTest extends TestCase {
         return JmpDuplicateCommandAction.REJECT; 
       }
     };
-    JmpCommandTest.MyCommand cmd =
+    final JmpCommandTest.MyCommand cmd =
         new MyCommand(JmpAsyncCommandBuilder
             .withEJBCommandAndGroupKey(
                 JmpEJBCommandConfig.Factory.withEJb(DomainManager.BEAN_NAME, "domainAdditionTest",
@@ -800,6 +802,7 @@ public class JmpCommandTest extends TestCase {
       @Override
       public void onCompleted() {
         cmd1Success.set(true);
+        System.out.println(cmd.getCommandMetrics());
       }
 
       @Override
@@ -817,7 +820,7 @@ public class JmpCommandTest extends TestCase {
     }
     final AtomicBoolean cmd2Success = new AtomicBoolean(false);
 
-    JmpCommandTest.MyCommand cmd2 =
+    final JmpCommandTest.MyCommand cmd2 =
         new MyCommand(JmpAsyncCommandBuilder
             .withEJBCommandAndGroupKey(
                 JmpEJBCommandConfig.Factory.withEJb(DomainManager.BEAN_NAME, "domainAdditionTest",
@@ -833,10 +836,13 @@ public class JmpCommandTest extends TestCase {
               }
             }).andMaxRetry(2).andDuplicateCommandHandler(jmpCommandDuplicateHandler).andCommandKey(key));
     cmd2.pass = true;
+    cmd2.sleepTime=10;
 
     cmd2.toObservable().subscribe(new Observer<ObservableResult<Integer>>() {
       @Override
       public void onCompleted() {
+        System.out.println(cmd2.getCommandMetrics());
+
         cmd2Success.set(true);
       }
 

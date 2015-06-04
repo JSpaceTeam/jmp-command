@@ -31,10 +31,12 @@ class JmpCommandPrevalidationHandler<R> implements JmpCommandRetryHandler {
         public Observable<?> call(IntermediateResultPassthrough passThroughResult) {
           
           if (!isExceptionRetriable(passThroughResult.t)) {
+            
             return Observable.error(passThroughResult.t);
           }
           JmpAbstractCommand.logger().warn("Retry due to prevalidation failure command: " + command.getCommandName() + " Error: " + passThroughResult.t.getMessage());
           if (passThroughResult.retryCount == (command.commandSettings.getMaxCommandRetry())) {
+            command.metrics.markTimedOut();
             return Observable.error(new JmpCommandRetryTimedOutException("Max retry exceeded  ", passThroughResult.t));
           }
           return Observable.timer(getRetryInMillis(passThroughResult), TimeUnit.MILLISECONDS);
